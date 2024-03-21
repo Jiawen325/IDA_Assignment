@@ -1,0 +1,125 @@
+require("maxLik")
+require("mice")
+
+
+########## 2
+setwd("C:/Users/GOOD/Desktop")
+load("dataex2.Rdata")
+
+# set up the parameters
+true_beta1 <- 3
+dims <- dim(dataex2)
+count_sr <- 0
+count_boot <- 0
+
+# loop through all data sets
+for(i in 1:dims[3]){
+  
+  # stochastic regression imputation
+  imp_sr <- mice(dataex2[,,i], printFlag = FALSE, 
+                 m = 20, method = "norm.nob", seed = 1)
+  
+  # bootstrap
+  imp_boot <- mice(dataex2[,,i], printFlag = FALSE, 
+                   m = 20, method = "norm.boot", seed = 1)
+  
+  # fit the regression model
+  fit_sr <- with(imp_sr, lm(Y ~ X))
+  fit_boot <- with(imp_boot, lm(Y ~ X))
+  
+  # pool the analyses
+  est_sr <- pool(fit_sr)
+  est_boot <- pool(fit_boot)
+  summary_sr <- summary(est_sr, conf.int = TRUE)
+  summary_boot <- summary(est_boot, conf.int = TRUE)
+  
+  # extract confidence intervals
+  confi_low_sr <- summary_sr$`2.5 %`[2]
+  confi_high_sr <- summary_sr$`97.5 %`[2]
+  
+  confi_low_boot <- summary_boot$`2.5 %`[2]
+  confi_high_boot <- summary_boot$`97.5 %`[2]
+  
+  if (true_beta1 >= confi_low_sr && true_beta1 <= confi_high_sr) {
+    count_sr <- count_sr + 1
+  }
+  
+  if (true_beta1 >= confi_low_boot && true_beta1 <= confi_high_boot) {
+    count_boot <- count_boot + 1
+  }
+}
+
+# calculate the empirical coverage probability
+prop_sr <- count_sr / dims[3]
+prop_boot <- count_boot / dims[3]
+
+cat("The empirical coverage probability by stochastic regression imputation: ", 
+    prop_sr, "\n")
+cat("The empirical coverage probability by bootstrap: ", prop_boot, "\n")
+
+
+########## 3
+setwd("C:/Users/GOOD/Desktop")
+load("dataex3.Rdata")
+
+# log likelihood
+log_likelihood <- function(mu, x, R) {
+  
+  log_density <- dnorm(x, mean = mu, sd = 1.5, log = TRUE)
+  log_cumulative <- pnorm(x, mean = mu, sd = 1.5, log.p = TRUE)
+  log_likelihood <- sum(R * log_density + (1 - R) * log_cumulative)
+  
+}
+
+mle_mu <- maxLik(logLik = log_likelihood, x = dataex3$X, R = dataex3$R, start = 0)
+summary(mle_mu)
+
+
+########## 5
+setwd("C:/Users/GOOD/Desktop")
+load("dataex5.Rdata")
+
+ex5<- function(data,beta00,eps){
+  
+  x <- data[,1]
+  y <- data[,2]
+  data_obs <- data[!is.na(y), ]
+  data_miss <- data[is.na(y), ]
+  diff <- 1
+  beta <- beta00
+  beta0 <- beta[1]
+  beta1 <- beta[2]
+  
+  while(diff > eps){
+    beta.old <- beta
+    
+    # E step
+    p_it <- exp(beta0 + data_miss[,1]*beta1)/
+      (1+exp(beta0 +data_miss[,1]*beta1))
+    
+    # M step
+    log_like <- function(param, data){
+      
+      x <- data[,1]; y <- data[,2]
+      data_obs <- data[!is.na(y), ]; data_miss <- data[is.na(y), ]
+      beta0 <- param[1]; beta1 <- param[2]
+
+      sum1 <- sum(data_obs[,2]*(beta0+beta1*data_obs[,1]))
+      sum2 <- sum((beta0+beta1*data_miss[,1])*p_it)
+      sum3 <- sum(log(1+exp(beta0+beta1*x)))
+      
+      log_like <- sum1 + sum2 - sum3
+      
+    }
+    
+    mle <- maxLik(logLik = log_like, data = dataex5 , start = c(beta0 = 0, beta1 = 0))
+    beta0 <- mle$estimate[1]
+    beta1 <- mle$estimate[2]
+    
+    beta <- c(beta0, beta1)
+    diff <- sum(abs(beta - beta.old))
+  }
+  return(beta)
+}
+
+ex5(data = dataex5, beta00 = c(0,0), eps=0.0000001)
